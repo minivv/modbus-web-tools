@@ -30,7 +30,7 @@ export default function AuthModal({
     const result = mode === "signin" ? await onSignIn(email, password) : await onSignUp(email, password);
     setBusy(false);
     setNotice({ ok: result.ok, text: result.message });
-    if (result.ok && mode === "signin") onClose();
+    if (result.ok && (mode === "signin" || (mode === "signup" && result.message === "注册成功。"))) onClose();
   }
 
   return (
