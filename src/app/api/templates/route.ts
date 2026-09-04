@@ -1,30 +1,40 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase-admin";
+import { getAuthedUserId } from "@/lib/server-auth";
 import { MAX_PRESET_COUNT, mapPresetRow, parsePresetInput, sameOrigin } from "@/lib/template-validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+function baseTemplatesQuery(supabase: NonNullable<ReturnType<typeof getSupabaseAdmin>>, userId: string) {
+  return supabase
+    .from("modbus_register_presets")
+    .select("*")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(MAX_PRESET_COUNT);
+}
+
+export async function GET(request: Request) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   }
-
   const supabase = getSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   }
 
-  const { data, error } = await supabase
-    .from("modbus_register_presets")
-    .select("*")
-    .order("updated_at", { ascending: false })
-    .limit(MAX_PRESET_COUNT);
+  const userId = await getAuthedUserId(request);
+  if (!userId) {
+    // 未登录：不返回任何云端模板，前端显示本机缓存
+    return NextResponse.json({ templates: [], authed: false });
+  }
 
+  const { data, error } = await baseTemplatesQuery(supabase, userId);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ templates: (data ?? []).map(mapPresetRow) });
+  return NextResponse.json({ templates: (data ?? []).map(mapPresetRow), authed: true });
 }
 
 export async function POST(request: Request) {
@@ -40,6 +50,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   }
 
+  const userId = await getAuthedUserId(request);
+  if (!userId) {
+    return NextResponse.json({ error: "请先登录后再保存模板。" }, { status: 401 });
+  }
+
   const input = parsePresetInput(await request.json().catch(() => null));
   if (!input) {
     return NextResponse.json({ error: "Invalid template payload." }, { status: 400 });
@@ -48,6 +63,7 @@ export async function POST(request: Request) {
   const existingResult = await supabase
     .from("modbus_register_presets")
     .select("id, created_at")
+    .eq("user_id", userId)
     .eq("name", input.name)
     .maybeSingle();
 
@@ -56,6 +72,7 @@ export async function POST(request: Request) {
   }
 
   const row = {
+    user_id: userId,
     name: input.name,
     start_address: input.startAddress,
     point_count: input.pointCount,
@@ -70,6 +87,7 @@ export async function POST(request: Request) {
         .from("modbus_register_presets")
         .update({ ...row, created_at: existingResult.data.created_at })
         .eq("id", existingResult.data.id)
+        .eq("user_id", userId)
         .select("*")
         .single()
     : await supabase
@@ -85,6 +103,7 @@ export async function POST(request: Request) {
   const all = await supabase
     .from("modbus_register_presets")
     .select("id")
+    .eq("user_id", userId)
     .order("updated_at", { ascending: false });
   if (all.error) {
     return NextResponse.json({ error: all.error.message }, { status: 500 });

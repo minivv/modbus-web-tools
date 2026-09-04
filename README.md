@@ -41,9 +41,15 @@ npm run dev
 | 变量 | 说明 |
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目地址（解析模板存储） |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase 服务端密钥 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key（账号注册登录用） |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase 服务端密钥（仅服务端使用） |
 
-先在 Supabase SQL Editor 执行 `supabase/schema.sql` 建表。模板接口不可用时自动降级为浏览器本地缓存，工具仍可离线使用。
+先在 Supabase SQL Editor 执行 `supabase/schema.sql` 建表，再执行 `supabase/migration-user-presets.sql` 增加模板的账号归属列。模板接口不可用时自动降级为浏览器本地缓存，工具仍可离线使用。
+
+### 账号与模板
+
+- 侧栏提供 **登录 / 注册**（Supabase Auth，默认开放注册）；未登录时模板仅保存在本机浏览器。
+- 登录后解析模板保存到**当前账号**，不同账号之间互不可见；每个账号最多 24 个模板。
 
 AI 生成模板的 Base URL / Key / 模型在页面上配置，仅保存在浏览器本地，请求由页面直连模型服务（默认适配 DeepSeek）。
 
@@ -53,7 +59,7 @@ AI 生成模板的 Base URL / Key / 模型在页面上配置，仅保存在浏�
 npx vercel
 ```
 
-在 Vercel 项目设置中配置上述两个环境变量（模板云端功能必需）；未配置时工具自动使用本地缓存。
+在 Vercel 项目设置中配置上述三个环境变量（账号与云端模板必需）；未配置时工具自动使用本地缓存。
 
 ## 目录
 

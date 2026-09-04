@@ -1,13 +1,16 @@
 "use client";
 
-import { BookOpen, Info, MessageSquareCode, Wrench } from "lucide-react";
+import { BookOpen, Info, Loader2, LogIn, LogOut, MessageSquareCode, Wrench } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import About from "@/components/About";
+import AuthModal from "@/components/AuthModal";
 import CommandBuilder from "@/components/CommandBuilder";
 import ProtocolReference from "@/components/ProtocolReference";
 import ResponseParser, { type ExampleKind, type ParserState } from "@/components/ResponseParser";
 import { TemplateStatus } from "@/components/TemplatePanel";
+import { Button } from "@/components/ui";
 import { buildCommand } from "@/lib/codec";
+import { useAuth } from "@/lib/use-auth";
 import type {
   BuiltFrame,
   CommandInput,
@@ -61,6 +64,8 @@ export default function WorkbenchApp() {
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const auth = useAuth();
   const workerRef = useRef<Worker | null>(null);
 
   const built = useMemo<{ frame: BuiltFrame | null; error: string | null }>(() => {
@@ -184,20 +189,31 @@ export default function WorkbenchApp() {
     }
   }, []);
 
+  const authHeaders = useMemo<Record<string, string>>(() => {
+    const headers: Record<string, string> = {};
+    if (auth.token) headers.authorization = `Bearer ${auth.token}`;
+    return headers;
+  }, [auth.token]);
+
   const refreshTemplates = useCallback(async () => {
     setTemplateStatus("loading");
     setTemplateError(null);
+    if (!auth.token) {
+      loadLocalTemplates();
+      return;
+    }
     try {
-      const response = await fetch("/api/templates", { cache: "no-store" });
+      const response = await fetch("/api/templates", { cache: "no-store", headers: authHeaders });
+      if (response.status === 401) throw new Error("unauthorized");
       if (!response.ok) throw new Error(await response.text());
       const data = (await response.json()) as { templates: Template[] };
       setTemplates(data.templates);
       setTemplateStatus("cloud");
     } catch {
       loadLocalTemplates();
-      setTemplateError("云端模板不可用，已切换到浏览器本地缓存。");
+      setTemplateError(auth.token ? "云端模板不可用，已切换到浏览器本地缓存。" : "未登录，显示本机缓存的模板。");
     }
-  }, [loadLocalTemplates]);
+  }, [auth.token, authHeaders, loadLocalTemplates]);
 
   useEffect(() => {
     void refreshTemplates();
@@ -243,9 +259,10 @@ export default function WorkbenchApp() {
       try {
         const response = await fetch("/api/templates", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders },
           body: JSON.stringify(payload),
         });
+        if (response.status === 401) throw new Error("unauthorized");
         if (!response.ok) throw new Error(await response.text());
         const saved = (await response.json().catch(() => null)) as { template?: Template } | null;
         if (saved?.template) setActiveTemplateId(saved.template.id);
@@ -260,12 +277,16 @@ export default function WorkbenchApp() {
         saveLocalTemplate(localTemplate);
         setActiveTemplateId(localTemplate.id);
         setTemplateStatus("local");
-        setTemplateError("云端保存失败，已保存到浏览器本地缓存。");
+        setTemplateError(
+          auth.token
+            ? "云端保存失败，已保存到浏览器本地缓存。"
+            : "未登录，模板仅保存在本机浏览器；登录后即可保存到你的账号。",
+        );
       } finally {
         setTemplateSaving(false);
       }
     },
-    [activeTemplate, parserState, refreshTemplates, result, saveLocalTemplate],
+    [activeTemplate, auth.token, authHeaders, parserState, refreshTemplates, result, saveLocalTemplate],
   );
 
   const deleteTemplate = useCallback(
@@ -273,9 +294,9 @@ export default function WorkbenchApp() {
       setTemplateError(null);
       if (template.id === activeTemplateId) setActiveTemplateId(null);
       if (templateStatus === "cloud") {
-        const response = await fetch(`/api/templates/${template.id}`, { method: "DELETE" });
+        const response = await fetch(`/api/templates/${template.id}`, { method: "DELETE", headers: authHeaders });
         if (!response.ok) {
-          setTemplateError("云端删除失败。");
+          setTemplateError(response.status === 401 ? "登录已失效，请重新登录后删除。" : "云端删除失败。");
           return;
         }
         await refreshTemplates();
@@ -286,7 +307,7 @@ export default function WorkbenchApp() {
       setTemplates(next);
       window.localStorage.setItem(LOCAL_TEMPLATES_KEY, JSON.stringify(next));
     },
-    [activeTemplateId, refreshTemplates, templateStatus, templates],
+    [activeTemplateId, authHeaders, refreshTemplates, templateStatus, templates],
   );
 
   const updateParserState = useCallback((patch: Partial<ParserState>) => {
@@ -333,9 +354,10 @@ export default function WorkbenchApp() {
       try {
         const response = await fetch("/api/templates", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...authHeaders },
           body: JSON.stringify(payload),
         });
+        if (response.status === 401) throw new Error("unauthorized");
         if (!response.ok) throw new Error(await response.text());
         const saved = (await response.json().catch(() => null)) as { template?: Template } | null;
         savedTemplate = saved?.template ?? null;
@@ -350,7 +372,11 @@ export default function WorkbenchApp() {
         saveLocalTemplate(localTemplate);
         savedTemplate = localTemplate;
         setTemplateStatus("local");
-        setTemplateError("云端保存失败，已保存到浏览器本地缓存。");
+        setTemplateError(
+          auth.token
+            ? "云端保存失败，已保存到浏览器本地缓存。"
+            : "未登录，模板仅保存在本机浏览器；登录后即可保存到你的账号。",
+        );
       }
       if (savedTemplate) setActiveTemplateId(savedTemplate.id);
       applyTemplate({
@@ -360,7 +386,7 @@ export default function WorkbenchApp() {
         updatedAt: savedTemplate?.updatedAt ?? now,
       });
     },
-    [applyTemplate, refreshTemplates, saveLocalTemplate],
+    [applyTemplate, auth.token, authHeaders, refreshTemplates, saveLocalTemplate],
   );
 
   const loadExample = useCallback((kind: ExampleKind) => {
@@ -396,7 +422,7 @@ export default function WorkbenchApp() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <aside className="hidden w-56 shrink-0 border-r border-line bg-paper lg:block">
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-paper lg:flex">
         <div className="border-b border-line px-4 py-4">
           <p className="text-base font-semibold tracking-tight">Modbus Web Tools</p>
           <p className="mt-1 text-xs text-muted">离线报文工作台</p>
@@ -418,6 +444,39 @@ export default function WorkbenchApp() {
             </button>
           ))}
         </nav>
+
+        <div className="mt-auto border-t border-line p-3">
+          {auth.loading ? (
+            <div className="flex items-center gap-2 px-1 text-[12px] text-muted">
+              <Loader2 size={13} className="animate-spin" /> 加载账号…
+            </div>
+          ) : auth.user ? (
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[12px] font-semibold text-amber-800">
+                {auth.user.email.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] font-medium" title={auth.user.email}>
+                  {auth.user.email}
+                </p>
+                <p className="text-[10px] text-muted">模板同步至账号</p>
+              </div>
+              <Button variant="ghost" aria-label="退出登录" title="退出登录" onClick={() => void auth.signOut()}>
+                <LogOut size={14} />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={!auth.configured}
+              title={auth.configured ? undefined : "账号系统未配置（缺少 anon key）"}
+              onClick={() => setAuthModalOpen(true)}
+            >
+              <LogIn size={14} /> {auth.configured ? "登录 / 注册" : "账号未配置"}
+            </Button>
+          )}
+        </div>
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -466,6 +525,14 @@ export default function WorkbenchApp() {
           {section === "about" ? <About /> : null}
         </div>
       </main>
+
+      {authModalOpen ? (
+        <AuthModal
+          onClose={() => setAuthModalOpen(false)}
+          onSignIn={(email, password) => auth.signIn(email, password)}
+          onSignUp={(email, password) => auth.signUp(email, password)}
+        />
+      ) : null}
     </div>
   );
 }
