@@ -1,6 +1,6 @@
 # Modbus Web Tools
 
-ModbusWorkbench 的 Web 版本：无需打开串口或建立 TCP 连接，在浏览器里离线完成 **Modbus RTU / TCP 报文构建**与**响应解析**。基于 Next.js，解析在 Web Worker 中执行，长报文输入不阻塞界面。
+[ModbusWorkbench](https://github.com/minivv/ModbusWorkbench) 的 Web 版本：无需打开串口或建立 TCP 连接，在浏览器里离线完成 **Modbus RTU / TCP 报文构建**与**响应解析**。基于 Next.js，解析在 Web Worker 中执行，长报文输入不阻塞界面。
 
 ## 截图
 
@@ -68,3 +68,4 @@ src/
 ## 说明
 
 - 本项目为离线工具，不做串口/TCP 直连；请在目标设备或网关侧抓包后粘贴报文使用。
+- 本作品收录于 [WeiSpot](https://weispot.vercel.app) 作品集：<https://weispot.vercel.app/projects/modbus-web-tools>。
