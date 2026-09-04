@@ -101,7 +101,7 @@ export default function AuthModal({
               setNotice(null);
             }}
           >
-            {mode === "signin" ? "还没有账号？注册一个（默认开放）" : "已有账号？返回登录"}
+            {mode === "signin" ? "还没有账号？" : "已有账号？返回登录"}
           </button>
         </div>
       </div>
